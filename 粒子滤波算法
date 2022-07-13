@@ -1,0 +1,107 @@
+粒子滤波算法
+
+每一个粒子代表一种可能的状态
+每一个粒子都有一个权重
+利用这些估计状态
+
+粒子滤波算法：
+1.	随机生成1000个或者一堆粒子（粒子选用需要估计的状态/且分配初始权重）
+2.	预测下一时刻每个粒子的状态
+3.	基于测量更新粒子的权重，与测量值近的粒子会得到大的权重
+4.	放弃不可能发生的粒子，用复制的可能发生的粒子代替
+5.	计算估计值
+
+
+一个例子：
+一个机器人具有转向和速度输入，有传感器测量机器人与路标的位置，但是传感器和控制机构都具有噪声。如何用粒子滤波方法追踪机器人的位置？
+1.	选择估计的状态 (x, y, θ)，生成粒子群 
+lizi = zeros(3,N); 
+lizi(1,:) =rand()*x_range;
+lizi(2,:) =rand()*y_range; 
+lizi(3,:) =rand()*theta_range;
+2.	预测步
+function  lizi = predict(lizi,v,steer,dt,std_steer,std_v)
+for i =1:N
+lizi(3,i) = lizi(3,i) + steer + normrnd()*std_steer
+lizi(3,i) = mod(lizi(3,i),2*pi)
+dist = (v * dt) + normrnd()*std_v 
+lizi(1,i) = lizi(1,i) + cos(lizi(3,i))*dist
+lizi(2,i) = lizi(2,i) + sin(lizi(3,i))*dist
+end
+end
+3.	更新步
+function weights=update(lizi,weights,z,R,landmarks)
+m = len(landmarks)
+for i=1:m
+		mo = (lizi(1,:) – landmarks(1,i)).^2+(lizi(2,:) – landmarks(2,i)).^2
+		distance = sqrt(mo)                      %distance的个数为N
+		weights=weights*normpdf(z1(i),distance,R)  %weights的个数为N
+		weights=weights/sum(weights)
+end
+end
+4.	重采样
+function lizi=simple_resample(lizi,weights)
+for i=1:N
+if i=1
+weights(i)=weights(1)
+else
+weights(i)=weights(i-1)+weights(i)
+end
+look_table=rand(1,N)
+for i=1:N
+a=look_table(i)-weights
+b=ind(a)
+new_lizi(i)=lizi(:,b)
+weights=ones*(1/N)
+end
+5.	计算状态估计值
+function state = estimate（lizi,weights）
+position = lizi(1:2,:)
+mean = mean(weights.*position)
+var = mean(weights.*(postion-mean).^2)
+state=[mean,var]
+end
+
+6.	主函数
+lizi = zeros(3,N); 
+lizi(1,:) =rand()*x_range;
+lizi(2,:) =rand()*y_range; 
+lizi(3,:) =rand()*theta_range;
+weights=ones（1/N）
+robot_pos=(0,0.1)
+for i=1:18  %仿真18步
+robot_pos=robot_pos + [1,1]
+zs=norm(landmarks-robot_pos,axis=1)+normrnd()*sensor_std_err
+lizi = predict(lizi,v,steer,dt,std_steer,std_v)
+weights=update(lizi,weights,z,R,landmarks)
+lizi=simple_resample(lizi,weights)
+state = estimate（lizi,weights）
+
+
+
+		
+直觉：
+制作一堆随机粒子，移动它们，使它们“有点”跟随机器人，根据它们与测量值的匹配程度对它们进行加权，只让可能的粒子存活。
+初始粒子的分布:
+假设我们不知道机器人的位置。 我们希望将粒子均匀地分散在整个场景中。 如果您认为所有粒子都代表一个概率分布，
+那么粒子较多的位置代表较高的置信度，而粒子较少的位置表示较低的置信度。 如果在特定位置附近有一大团粒子，这意味着我们更确定机器人就在那里。
+初始粒子的权重：
+每个粒子都需要一个权重——理想情况下，它代表机器人真实位置的概率。 这个概率很少是可计算的，所以我们只要求它与那个可计算的概率成比例。 
+在初始化时，我们没有理由偏爱一个粒子而不是另一个粒子，因此我们为 𝑁 粒子分配权重 1/𝑁 。 我们使用 1/𝑁 以使所有概率之和等于 1。
+预测
+每个粒子代表机器人的一个可能位置。 假设我们向机器人发送命令，使其移动 0.1 米，同时转动 0.007 弧度。 
+我们可以将每个粒子移动这个量。 如果我们这样做，我们很快就会遇到问题。 机器人的控制并不完美，因此它不会完全按照命令移动。 
+因此，我们需要为粒子的运动添加噪声，以便有合理的机会捕捉机器人的实际运动。 
+如果您不对系统中的不确定性进行建模，粒子滤波器将无法正确建模我们对机器人位置的信念的概率分布。
+更新
+接下来，我们得到一组测量值——一个用于当前视图中的每个地标。 应该如何使用这些测量来改变我们由粒子建模的概率分布？
+重采样
+算法存在退化问题。 它从具有相同权重的均匀分布的粒子开始。 机器人附近可能只有少数粒子。 当算法运行时，任何与测量值不匹配的粒子都将获得极低的权重。
+只有靠近机器人的粒子才会有可观的权重。 我们可以有 5,000 个粒子，其中只有 3 个对状态估计有意义！ 我们说过滤器已经退化。
+这个问题通常可以通过对粒子进行某种形式的重采样来解决。
+权重非常小的粒子并不能有意义地描述机器人的概率分布。 重采样算法丢弃概率非常低的粒子，并用概率较高的新粒子替换它们。 
+它通过以相对较高的概率复制粒子来做到这一点。 重复项因预测步骤中添加的噪声而略微分散。 这会产生一组点，其中大部分粒子准确地表示概率分布。
+有许多重采样算法。 现在让我们看一下最简单的随机重采样之一，也称为多项重采样。 它从当前粒子集采样 𝑁 次，从样本中生成一组新粒子。 
+选择任何给定粒子的概率应与其权重成正比。
+我们使用 NumPy 的 cumsum 函数来实现这一点。 cumsum 计算数组的累积和。 即元素一是元素零和一之和，元素二是元素零、一和二等之和。
+然后我们生成0.0到1.0范围内的随机数并进行二分查找以找到最接近该数字的权重。
